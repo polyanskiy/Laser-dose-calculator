@@ -18,23 +18,23 @@ import numpy as np
 from scipy.integrate import cumulative_trapezoid, trapezoid, quad
 
 CONFIG = {
-    "laser": {
-        "pulse_energy": 14,
-        "pulse_duration": 2e-12,  # intensity FWHM
-        "wavelength": 9.3e-6,
-        "beam_diameter": 25.0e-3,  # incident intensity FWHM at lens
-        "focal_length": 1.0,
-        "M_squared": 1.0,
-    },
-    
     # "laser": {
-    #     "pulse_energy": 20,
-    #     "pulse_duration": 70e-12,  # intensity FWHM
+    #     "pulse_energy": 14,
+    #     "pulse_duration": 2e-12,  # intensity FWHM
     #     "wavelength": 9.3e-6,
-    #     "beam_diameter": 38.0e-3,  # incident intensity FWHM at lens
+    #     "beam_diameter": 25.0e-3,  # incident intensity FWHM at lens
     #     "focal_length": 1.0,
     #     "M_squared": 1.0,
     # },
+    
+    "laser": {
+        "pulse_energy": 20,
+        "pulse_duration": 70e-12,  # intensity FWHM
+        "wavelength": 9.3e-6,
+        "beam_diameter": 38.0e-3,  # incident intensity FWHM at lens
+        "focal_length": 1.0,
+        "M_squared": 1.0,
+    },
     
     # "laser": {
     #     "pulse_energy": 14,
