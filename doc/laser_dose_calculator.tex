@@ -7,9 +7,8 @@
 \setlength{\parskip}{4pt}
 \setlength{\emergencystretch}{3em}
 \newcommand{\hstar}{\ensuremath{H^*(10)}}
-\title{Dose calculator: model and numerical data}
-\author{Technical description of \texttt{dose\_calculator.py}}
-\date{7 October 2026}
+\title{Laser Dose Calculator}
+\date{26 October 2026}
 \begin{document}
 \maketitle
 
@@ -24,20 +23,20 @@ Input & Unit / choices\\\midrule
 \endfirsthead
 \toprule Input & Unit / choices\\\midrule\endhead
 \bottomrule\endfoot
-\texttt{laser.pulse\_energy\_J} & J\\
-\texttt{laser.pulse\_duration\_s} & s, intensity FWHM\\
-\texttt{laser.wavelength\_m} & m\\
-\texttt{laser.beam\_fwhm\_diameter\_m} & m, at lens\\
-\texttt{laser.focal\_length\_m} & m\\
+\texttt{laser.pulse\_energy} & J\\
+\texttt{laser.pulse\_duration} & s, intensity FWHM\\
+\texttt{laser.wavelength} & m\\
+\texttt{laser.beam\_diameter} & m, FWHM at lens\\
+\texttt{laser.focal\_length} & m\\
 \texttt{laser.M\_squared} & dimensionless, $\geq1$\\
 \texttt{target} & \texttt{Al}, \texttt{SS}, or \texttt{Teflon}\\
-\texttt{source.observation\_angle\_rad} & rad, $0\ldots\pi/2$\\
+\texttt{source.observation\_angle} & rad, $0\ldots\pi/2$\\
 \texttt{path[*].material} & \texttt{vacuum}, \texttt{air}, \texttt{Al}, \texttt{SS}, \texttt{BK7}, or \texttt{BaF2}\\
-\texttt{path[*].thickness\_m} & m, along the observation ray\\
+\texttt{path[*].thickness} & m, along the observation ray\\
 \end{longtable}
-Specify \texttt{path} as an ordered list of layers from the source to the observation point, with one \texttt{material} and one nonnegative \texttt{thickness\_m} per layer. Every thickness is measured along the observation ray; their sum is the source--observer distance $r$, and vacuum contributes to $r$ but not attenuation. Layer order does not affect this homogeneous, uncollided-beam model when the same materials, thicknesses, and total distance are retained.
+Specify \texttt{path} as an ordered list of layers from the source to the observation point, with one \texttt{material} and one nonnegative \texttt{thickness} per layer. Every thickness is measured along the observation ray; their sum is the source--observer distance $r$, and vacuum contributes to $r$ but not attenuation. Layer order does not affect this homogeneous, uncollided-beam model when the same materials, thicknesses, and total distance are retained.
 
-Material densities and the source coupling, temperature override, and angular width are deliberately stored outside \texttt{CONFIG} in \texttt{DENSITY\_KG\_M3} and \texttt{SOURCE\_MODEL}. They are advanced model constants, not routine inputs. Normal output additionally reports $w_0$, $I_0$, $Q$, $T$, $\langle E\rangle$, $g(\theta)$, and $r$ before the dose.
+Material densities and the source coupling, temperature override, and angular width are deliberately stored outside \texttt{CONFIG} in \texttt{DENSITY} and \texttt{SOURCE\_MODEL}. They are advanced model constants, not routine inputs. Normal output additionally reports $w_0$, $I_0$, $Q$, $T$, $\langle E\rangle$, $g(\theta)$, and $r$ before the dose.
 
 \section{Laser and hot-electron model}
 For pulse energy $U_L$, temporal intensity FWHM $\tau$, lens-plane intensity-FWHM diameter $D$, focal length $f$, wavelength $\lambda$, and the numerical beam-quality value $\mathcal M=M^2$,

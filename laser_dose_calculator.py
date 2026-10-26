@@ -48,15 +48,15 @@ CONFIG = {
     
     "target": "Teflon",  # "Al", "SS", or "Teflon" (PTFE)
     "source": {
-        "observation_angle_rad": 0.0,
+        "observation_angle": 0.0,
     },
     # Ordered ray segments from source to the single observation point.
     # Every segment, including vacuum, contributes to inverse-square distance.
     # These are lengths ALONG THE OBSERVATION RAY, not necessarily normal thicknesses.
     "path": [
-        {"material": "vacuum", "thickness_m": 0.300},
-        {"material": "SS", "thickness_m": 0.0127},
-        #{"material": "air", "thickness_m": 0.0},
+        {"material": "vacuum", "thickness": 0.300},
+        {"material": "SS", "thickness": 0.0127},
+        #{"material": "air", "thickness": 0.0},
     ],
 }
 
@@ -66,7 +66,7 @@ SOURCE_MODEL = {
     "temperature_keV": None,  # None = laser scaling; positive value overrides
     "angular_sigma_rad": 0.7853981633974483,
 }
-DENSITY_KG_M3 = {
+DENSITY = {
     "Al": 2699.0, "SS": 7900.0, "air": 1.2048,
     "BK7": 2510.0, "BaF2": 4890.0,
 }
@@ -434,23 +434,23 @@ def validate(config):
               "conversion fraction") > 1:
         raise ValueError("conversion fraction must not exceed 1")
     number(SOURCE_MODEL["angular_sigma_rad"], "angular sigma", strict=True)
-    if number(c["source"]["observation_angle_rad"],
+    if number(c["source"]["observation_angle"],
               "observation angle") > np.pi/2:
         raise ValueError("observation angle must be between 0 and pi/2 radians")
     if SOURCE_MODEL["temperature_keV"] is not None:
         number(SOURCE_MODEL["temperature_keV"], "temperature", low=0.05)
-    if set(DENSITY_KG_M3) != {"Al", "SS", "air", "BK7", "BaF2"}:
-        raise ValueError("DENSITY_KG_M3 must define Al, SS, air, BK7 and BaF2")
-    for name, rho in DENSITY_KG_M3.items():
+    if set(DENSITY) != {"Al", "SS", "air", "BK7", "BaF2"}:
+        raise ValueError("DENSITY must define Al, SS, air, BK7 and BaF2")
+    for name, rho in DENSITY.items():
         number(rho, name+" density", strict=True)
     if not isinstance(c["path"], list) or not c["path"]:
         raise ValueError("path must be a nonempty list of ray segments")
     for p in c["path"]:
-        keys(p, ("material", "thickness_m"), "path segment")
+        keys(p, ("material", "thickness"), "path segment")
         if p["material"] not in ("vacuum", "air", "Al", "SS", "BK7", "BaF2"):
             raise ValueError("path materials must be vacuum, air, Al, SS, BK7 or BaF2")
-        number(p["thickness_m"], "segment thickness")
-    if sum(p["thickness_m"] for p in c["path"]) <= 0:
+        number(p["thickness"], "segment thickness")
+    if sum(p["thickness"] for p in c["path"]) <= 0:
         raise ValueError("Total source-to-observer distance must be positive")
     return c
 
@@ -522,9 +522,9 @@ def calculate(config, *, resolution=1, return_details=False):
     f = (e+REST_KEV)*np.sqrt(e*(e+2*REST_KEV))*np.exp(-e/T)
     f /= trapezoid(f, e)
     mean = trapezoid(e*f, e)
-    distance_m = sum(p["thickness_m"] for p in c["path"])
+    distance_m = sum(p["thickness"] for p in c["path"])
     g = angular_factor(SOURCE_MODEL["angular_sigma_rad"],
-                       c["source"]["observation_angle_rad"])
+                       c["source"]["observation_angle"])
     details = {
         "focal_1_over_e2_radius": float(w0),
         "peak_intensity_W_m2": float(intensity),
@@ -550,8 +550,8 @@ def calculate(config, *, resolution=1, return_details=False):
     for layer in c["path"]:
         name = layer["material"]
         if name != "vacuum":
-            optical_depth += (mu[name]*DENSITY_KG_M3[name]
-                              * layer["thickness_m"])
+            optical_depth += (mu[name]*DENSITY[name]
+                              * layer["thickness"])
     # Photon fluence is photons/m^2/keV/pulse; hstar is Sv m^2/photon.
     phi = g*spectrum*np.exp(-optical_depth)/(distance_m**2*k*KEV_TO_J)
     dose_density_Sv = phi*hstar(k)
