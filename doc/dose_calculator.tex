@@ -1,0 +1,544 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=18mm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,amsmath,booktabs,longtable,array}
+\usepackage[colorlinks=true,urlcolor=blue!50!black]{hyperref}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\setlength{\emergencystretch}{3em}
+\newcommand{\hstar}{\ensuremath{H^*(10)}}
+\title{Dose calculator: model and numerical data}
+\author{Technical description of \texttt{dose\_calculator.py}}
+\date{7 October 2026}
+\begin{document}
+\maketitle
+
+\section{Quantity calculated and inputs}
+The script estimates uncollided-primary-photon ambient dose equivalent \hstar\ at the endpoint of one ray, in mrem per laser pulse. It accepts Al, simplified stainless steel (SS), or polytetrafluoroethylene (Teflon/PTFE) as the thick target. Configuration is done by editing \texttt{CONFIG} in the script, or by passing a complete replacement with \texttt{--config FILE.json}. The output echoes every configuration input, reports important calculated quantities, and then prints the labeled dose result.
+
+Canonical SI is used for configuration geometry, time, angle, and internal photon transport. Electron and photon energies remain in keV because the empirical source law and both radiation tables are tabulated in keV.
+
+\begin{longtable}{ll}
+\toprule
+Input & Unit / choices\\\midrule
+\endfirsthead
+\toprule Input & Unit / choices\\\midrule\endhead
+\bottomrule\endfoot
+\texttt{laser.pulse\_energy\_J} & J\\
+\texttt{laser.pulse\_duration\_s} & s, intensity FWHM\\
+\texttt{laser.wavelength\_m} & m\\
+\texttt{laser.beam\_fwhm\_diameter\_m} & m, at lens\\
+\texttt{laser.focal\_length\_m} & m\\
+\texttt{laser.M\_squared} & dimensionless, $\geq1$\\
+\texttt{target} & \texttt{Al}, \texttt{SS}, or \texttt{Teflon}\\
+\texttt{source.observation\_angle\_rad} & rad, $0\ldots\pi/2$\\
+\texttt{path[*].material} & \texttt{vacuum}, \texttt{air}, \texttt{Al}, \texttt{SS}, \texttt{BK7}, or \texttt{BaF2}\\
+\texttt{path[*].thickness\_m} & m, along the observation ray\\
+\end{longtable}
+Specify \texttt{path} as an ordered list of layers from the source to the observation point, with one \texttt{material} and one nonnegative \texttt{thickness\_m} per layer. Every thickness is measured along the observation ray; their sum is the source--observer distance $r$, and vacuum contributes to $r$ but not attenuation. Layer order does not affect this homogeneous, uncollided-beam model when the same materials, thicknesses, and total distance are retained.
+
+Material densities and the source coupling, temperature override, and angular width are deliberately stored outside \texttt{CONFIG} in \texttt{DENSITY\_KG\_M3} and \texttt{SOURCE\_MODEL}. They are advanced model constants, not routine inputs. Normal output additionally reports $w_0$, $I_0$, $Q$, $T$, $\langle E\rangle$, $g(\theta)$, and $r$ before the dose.
+
+\section{Laser and hot-electron model}
+For pulse energy $U_L$, temporal intensity FWHM $\tau$, lens-plane intensity-FWHM diameter $D$, focal length $f$, wavelength $\lambda$, and the numerical beam-quality value $\mathcal M=M^2$,
+\begin{align}
+w_L&=D/\sqrt{2\ln2},&w_0&=\mathcal M\lambda f/(\pi w_L),\\
+\tau_{\rm eff}&=\tau\sqrt\pi/(2\sqrt{\ln2}),&
+I_0&=U_L/[(\pi w_0^2/2)\tau_{\rm eff}]\quad[\mathrm{W/m^2}].
+\end{align}
+The assumed intensity is $I(\varrho,t)=I_0e^{-2\varrho^2/w_0^2}e^{-4\ln2\,t^2/\tau^2}$. The legacy numerical parameter required by the empirical temperature law is
+\begin{equation}
+Q=10^8 I_0[\mathrm{W/m^2}]\lambda^2[\mathrm m^2]
+=I_0[\mathrm{W/cm^2}](\lambda[\mu\mathrm m])^2.
+\end{equation}
+With $u=Q/(1.37\times10^{18})$, the automatic temperature is \cite{liang}
+\begin{equation}
+T[\mathrm{keV}]=\begin{cases}6\times10^{-5}Q^{0.33},&Q\leq1.6\times10^{17},\\
+511u/(\sqrt{1+u}+1),&Q>1.6\times10^{17}.
+\end{cases}
+\end{equation}
+The second expression equals $511(\sqrt{1+u}-1)$ but is numerically stable. The advanced \texttt{SOURCE\_MODEL} constants are $\eta=1.0$, temperature override \texttt{None} (use this scaling), and $\sigma=0.7853981633974483$ rad. A non-null advanced temperature overrides the scaling.
+
+With electron rest energy $m=511$ keV, the normalized Maxwell--J\"uttner kinetic-energy density is \cite{juttner}
+\begin{align}
+F(E;T)&=\frac{(E+m)\sqrt{E(E+2m)}e^{-E/T}}
+{\int_0^\infty(E'+m)\sqrt{E'(E'+2m)}e^{-E'/T}\,dE'},\\
+\langle E\rangle&=\int_0^\infty EF(E;T)\,dE.
+\end{align}
+For coupling fraction $\eta$ and $c_E=1.602176634\times10^{-16}$ J/keV,
+\begin{equation}U_e=\eta U_L,\qquad N_e=U_e/(c_E\langle E\rangle),\qquad dN_e/dE=N_eF(E;T).\end{equation}
+
+\section{Bremsstrahlung source}
+The target is assumed to stop every source electron. For an element of atomic number $Z$ \cite{coderre},
+\begin{equation}a_Z(E)=6\times10^{-4}Z(E/1000),\qquad Y_Z(E)=a_Z/(1+a_Z),\end{equation}
+where $E$ is in keV. Thus $Y_{\rm Al}=Y_{13}$, while the explicit mixture surrogates are
+\begin{align}
+Y_{\rm SS}&=0.738Y_{26}+0.181Y_{24}+0.081Y_{28},\\
+Y_{\rm Teflon}&=0.240183Y_6+0.759817Y_9.
+\end{align}
+The Teflon mass fractions correspond to carbon and fluorine in PTFE, as tabulated by NIST \cite{teflon}. The same approximate mass-weighted elemental-yield rule used for SS is applied to Teflon. Teflon is a target option but not a \texttt{path[*].material} option. Target density is not used because the model assumes an electron-stopping target and omits self-absorption and electron transport.
+For a single electron,
+\begin{equation}B(k\mid E)=\begin{cases}2Y(E)(1-k/E),&0<k<E,\\0,&k\geq E,
+\end{cases}\qquad \int_0^E B\,dk=Y(E)E.
+\end{equation}
+The photon-energy spectrum, integrated over the forward hemisphere, is
+\begin{align}
+S(k)&=\frac{2U_e}{\langle E\rangle}[A(k)-kC(k)]\quad[\mathrm{J/keV/pulse}],\\
+A(k)&=\int_k^\infty F(E)Y(E)\,dE,&C(k)&=\int_k^\infty F(E)Y(E)E^{-1}\,dE.
+\end{align}
+
+\section{Angle, shielding, and dose}
+For advanced angular width $\sigma$ and configured observation angle $\theta$, both in radians,
+\begin{equation}
+g(\theta)=\frac{e^{-\theta^2/(2\sigma^2)}}{2\pi\int_0^{\pi/2}e^{-u^2/(2\sigma^2)}\sin u\,du},
+\qquad\int_{\rm forward}g\,d\Omega=1.
+\end{equation}
+For layer density $\rho_j$ in kg/m$^3$, ray length $\ell_j$ in m, and total mass attenuation coefficient $(\mu/\rho)_j$ in m$^2$/kg,
+\begin{equation}\chi(k)=\sum_{j\ne\rm vacuum}(\mu/\rho)_j(k)\rho_j\ell_j,qquad \mathcal T=e^{-\chi},\qquad r=\sum_j\ell_j.\end{equation}
+Elemental coefficients are combined by the mass-additivity rule $(\mu/\rho)_{\rm mix}=\sum_iw_i(\mu/\rho)_i$. For oxide mass fractions $x_o$, stoichiometric counts $n_{io}$, and atomic weights $A_i$, the conversion used for BK7 is
+\begin{equation}w_i=\sum_o x_o\frac{n_{io}A_i}{\sum_j n_{jo}A_j}.\end{equation}
+The exact mass fractions are
+\begin{align}
+\mathbf w_{\rm SS}&=\{\mathrm{Fe}:0.738,\ \mathrm{Cr}:0.181,\ \mathrm{Ni}:0.081\},\\
+\mathbf w_{\rm BaF_2}&=\{\mathrm{Ba}:0.7832764008365862,\ \mathrm F:0.2167235991634137\},\\
+\mathbf w_{\rm BK7}&=\{\mathrm{Si}:0.3231389993841853,\ \mathrm O:0.48388281234709274,\
+\mathrm B:0.03338480543545398,\ \mathrm{Ba}:0.02749656874894017,\\
+&\hspace{22mm}\mathrm{Na}:0.07715367482585571,\ \mathrm K:0.052216516907371474,\
+\mathrm{As}:0.002726622351100653\}.
+\end{align}
+BaF$_2$ fractions follow from the formula and atomic weights Ba 137.327 and F 18.998403163. BK7 is a nominal BK7/K9 attenuation surrogate, not a claim about SCHOTT's proprietary N-BK7 recipe. Its published nominal oxide mass recipe is 69.13\% SiO$_2$, 10.75\% B$_2$O$_3$, 3.07\% BaO, 10.40\% Na$_2$O, 6.29\% K$_2$O, and 0.36\% As$_2$O$_3$ \cite{bk7recipe}; elemental conversion used atomic weights Si 28.085, O 15.999, B 10.81, Ba 137.327, Na 22.98976928, K 39.0983, and As 74.921595. \texttt{DENSITY\_KG\_M3} stores Al 2699, SS 7900, air 1.2048, BK7 2510, and BaF$_2$ 4890 kg/m$^3$. The BK7 density is the SCHOTT N-BK7 value; the BaF$_2$ density is the Hellma value \cite{bk7,baf2}.
+
+The photon fluence and dose are
+\begin{align}
+\frac{d\Phi}{dk}&=\frac{g(\theta)S(k)e^{-\chi(k)}}{r^2c_Ek}
+\quad[\mathrm{photons/m^2/keV/pulse}],\\
+H^*_{\rm pulse}(10)[\mathrm{mrem/pulse}]&=10^5\int_{10}^{20000}h(k)\frac{d\Phi}{dk}\,dk,
+\end{align}
+where $h$ is in Sv\,m$^2$/photon and $1$ Sv $=10^5$ mrem. Embedded source values are pSv\,cm$^2$/photon and are multiplied by $10^{-16}$. Embedded NIST values are cm$^2$/g and are multiplied by 0.1 to obtain m$^2$/kg. The reported integral excludes photons below 10 keV and above 20 MeV.
+
+\section{Numerics and scope}
+Positive tables use log--log interpolation,
+\begin{equation}y(k)=\exp\left[\ln y_i+\frac{\ln k-\ln k_i}{\ln k_{i+1}-\ln k_i}(\ln y_{i+1}-\ln y_i)\right],\end{equation}
+with no extrapolation. Duplicate absorption-edge energies are shifted to $k(1\mp10^{-8})$ only in the interpolation grid. At the normal internal resolution multiplier 1, the electron grid has 90,000 logarithmic points from $10^{-5}$ keV to $\max(20000,80T)$ keV; the photon grid has 18,000 logarithmic points from 10 to 20,000 keV plus every table knot and 18,000 keV. Trapezoidal quadrature evaluates all energy integrals. Angular quadrature uses zero absolute tolerance, $10^{-10}$ relative tolerance, and stops at the smaller of $\pi/(2\sigma)$ and 40 Gaussian widths. Temperatures outside 0.05--100,000 keV are rejected. The result is rejected if the 18--20 MeV interval contributes more than $10^{-5}$ of dose.
+
+The model omits target self-absorption, finite-target electron escape, characteristic lines, scattered photons and buildup, charged-particle transport, cascades, photonuclear reactions, and neutron dose. It assumes a point source, an energy-independent angular law, and all source energy in the forward hemisphere. It is a screening model, not proof of shielding adequacy.
+
+\small
+\begin{thebibliography}{9}
+\bibitem{nist} J. H. Hubbell and S. M. Seltzer, NIST SRD 126, \emph{X-Ray Mass Attenuation Coefficients}, \url{https://physics.nist.gov/PhysRefData/XrayMassCoef/cover.html}. The script uses $\mu/\rho$, not $\mu_{\rm en}/\rho$.
+\bibitem{liang} T. Liang et al., \emph{Radiat. Prot. Dosim.} 172, 346--355 (2016), \href{https://doi.org/10.1093/rpd/ncv505}{doi:10.1093/rpd/ncv505}.
+\bibitem{coderre} J. Coderre, MIT OCW 22.55J, ``Interactions of Light Charged Particles with Matter,'' p.~6, \url{https://ocw.mit.edu/courses/22-55j-principles-of-radiation-interactions-fall-2004/resources/energ_depos_elec/}.
+\bibitem{juttner} M. Mo\'scibrodzka and C. F. Gammie, \emph{ApJ} 968, 6 (2024), \href{https://doi.org/10.3847/1538-4357/ad4636}{doi:10.3847/1538-4357/ad4636}.
+\bibitem{ferrari} A. Ferrari and M. Pelliccioni, photon $H^*(10)/\Phi$ table, \url{https://fismel.lnf.infn.it/wp-content/uploads/sites/14/2023/08/photonsa.pdf}.
+\bibitem{bk7recipe} Nantong Haisheng Optical, nominal H-K9L (BK7-type) oxide composition, \url{https://www.haishengoptical.com/colorless_optical_glass-show-219.html}.
+\bibitem{bk7} SCHOTT N-BK7 data sheet (density 2.51 g/cm$^3$), \url{https://shop.schott.com/medias/schott-datasheet-n-bk7-eng.pdf}.
+\bibitem{baf2} Hellma Materials BaF$_2$ data sheet (density 4.89 g/cm$^3$), \url{https://www.hellma-materials.com/wp-content/uploads/2024/11/HM_Optische_Kristalle_BaF2_Data_Sheet_EN.pdf}.
+\bibitem{teflon} NIST STAR, composition of polytetrafluoroethylene (Teflon), \url{https://physics.nist.gov/cgi-bin/Star/compos.pl?matno=227}.
+\end{thebibliography}
+\normalsize
+
+\appendix
+\clearpage
+\section{Embedded attenuation coefficients: Al}
+These are original input rows, with photon energy converted from MeV to keV. Repeated nominal energies are the lower and upper sides of an absorption edge, in that order. Source: \url{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z13.html}.
+\small
+\begin{longtable}{rr}
+\toprule
+$k$ (keV) & $\mu/\rho$ (cm$^2$/g) \\
+\midrule
+\endfirsthead
+\toprule
+$k$ (keV) & $\mu/\rho$ (cm$^2$/g) \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+1 & 1185 \\
+1.5 & 402.2 \\
+1.5596 & 362.1 \\
+1.5596 & 3957 \\
+2 & 2263 \\
+3 & 788 \\
+4 & 360.5 \\
+5 & 193.4 \\
+6 & 115.3 \\
+8 & 50.33 \\
+10 & 26.23 \\
+15 & 7.955 \\
+20 & 3.441 \\
+30 & 1.128 \\
+40 & 0.5685 \\
+50 & 0.3681 \\
+60 & 0.2778 \\
+80 & 0.2018 \\
+100 & 0.1704 \\
+150 & 0.1378 \\
+200 & 0.1223 \\
+300 & 0.1042 \\
+400 & 0.09276 \\
+500 & 0.08445 \\
+600 & 0.07802 \\
+800 & 0.06841 \\
+1000 & 0.06146 \\
+1250 & 0.05496 \\
+1500 & 0.05006 \\
+2000 & 0.04324 \\
+3000 & 0.03541 \\
+4000 & 0.03106 \\
+5000 & 0.02836 \\
+6000 & 0.02655 \\
+8000 & 0.02437 \\
+10000 & 0.02318 \\
+15000 & 0.02195 \\
+20000 & 0.02168 \\
+\end{longtable}
+\normalsize
+\clearpage
+\section{Embedded attenuation coefficients: Cr}
+These are original input rows, with photon energy converted from MeV to keV. Repeated nominal energies are the lower and upper sides of an absorption edge, in that order. Source: \url{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z24.html}.
+\small
+\begin{longtable}{rr}
+\toprule
+$k$ (keV) & $\mu/\rho$ (cm$^2$/g) \\
+\midrule
+\endfirsthead
+\toprule
+$k$ (keV) & $\mu/\rho$ (cm$^2$/g) \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+1 & 7405 \\
+1.5 & 2694 \\
+2 & 1277 \\
+3 & 433.9 \\
+4 & 198.8 \\
+5 & 108 \\
+5.9892 & 65.74 \\
+5.9892 & 597.7 \\
+6 & 516 \\
+8 & 251.3 \\
+10 & 138.6 \\
+15 & 45.71 \\
+20 & 20.38 \\
+30 & 6.434 \\
+40 & 2.856 \\
+50 & 1.55 \\
+60 & 0.9639 \\
+80 & 0.4905 \\
+100 & 0.3166 \\
+150 & 0.1788 \\
+200 & 0.1378 \\
+300 & 0.1067 \\
+400 & 0.09213 \\
+500 & 0.08281 \\
+600 & 0.07598 \\
+800 & 0.0662 \\
+1000 & 0.0593 \\
+1250 & 0.05295 \\
+1500 & 0.04832 \\
+2000 & 0.04213 \\
+3000 & 0.03559 \\
+4000 & 0.03235 \\
+5000 & 0.03057 \\
+6000 & 0.02956 \\
+8000 & 0.02869 \\
+10000 & 0.02855 \\
+15000 & 0.0292 \\
+20000 & 0.03026 \\
+\end{longtable}
+\normalsize
+\clearpage
+\section{Embedded attenuation coefficients: Fe}
+These are original input rows, with photon energy converted from MeV to keV. Repeated nominal energies are the lower and upper sides of an absorption edge, in that order. Source: \url{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z26.html}.
+\small
+\begin{longtable}{rr}
+\toprule
+$k$ (keV) & $\mu/\rho$ (cm$^2$/g) \\
+\midrule
+\endfirsthead
+\toprule
+$k$ (keV) & $\mu/\rho$ (cm$^2$/g) \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+1 & 9085 \\
+1.5 & 3399 \\
+2 & 1626 \\
+3 & 557.6 \\
+4 & 256.7 \\
+5 & 139.8 \\
+6 & 84.84 \\
+7.112 & 53.19 \\
+7.112 & 407.6 \\
+8 & 305.6 \\
+10 & 170.6 \\
+15 & 57.08 \\
+20 & 25.68 \\
+30 & 8.176 \\
+40 & 3.629 \\
+50 & 1.958 \\
+60 & 1.205 \\
+80 & 0.5952 \\
+100 & 0.3717 \\
+150 & 0.1964 \\
+200 & 0.146 \\
+300 & 0.1099 \\
+400 & 0.094 \\
+500 & 0.08414 \\
+600 & 0.07704 \\
+800 & 0.06699 \\
+1000 & 0.05995 \\
+1250 & 0.0535 \\
+1500 & 0.04883 \\
+2000 & 0.04265 \\
+3000 & 0.03621 \\
+4000 & 0.03312 \\
+5000 & 0.03146 \\
+6000 & 0.03057 \\
+8000 & 0.02991 \\
+10000 & 0.02994 \\
+15000 & 0.03092 \\
+20000 & 0.03224 \\
+\end{longtable}
+\normalsize
+\clearpage
+\section{Embedded attenuation coefficients: Ni}
+These are original input rows, with photon energy converted from MeV to keV. Repeated nominal energies are the lower and upper sides of an absorption edge, in that order. Source: \url{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z28.html}.
+\small
+\begin{longtable}{rr}
+\toprule
+$k$ (keV) & $\mu/\rho$ (cm$^2$/g) \\
+\midrule
+\endfirsthead
+\toprule
+$k$ (keV) & $\mu/\rho$ (cm$^2$/g) \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+1 & 9855 \\
+1.00404 & 9753 \\
+1.0081 & 9654 \\
+1.0081 & 10990 \\
+1.5 & 4234 \\
+2 & 2049 \\
+3 & 709.4 \\
+4 & 328.2 \\
+5 & 179.3 \\
+6 & 109 \\
+8 & 49.52 \\
+8.3328 & 44.28 \\
+8.3328 & 329.4 \\
+10 & 209 \\
+15 & 70.81 \\
+20 & 32.2 \\
+30 & 10.34 \\
+40 & 4.6 \\
+50 & 2.474 \\
+60 & 1.512 \\
+80 & 0.7306 \\
+100 & 0.444 \\
+150 & 0.2208 \\
+200 & 0.1582 \\
+300 & 0.1154 \\
+400 & 0.09765 \\
+500 & 0.08698 \\
+600 & 0.07944 \\
+800 & 0.06891 \\
+1000 & 0.0616 \\
+1250 & 0.05494 \\
+1500 & 0.05015 \\
+2000 & 0.04387 \\
+3000 & 0.03745 \\
+4000 & 0.03444 \\
+5000 & 0.03289 \\
+6000 & 0.0321 \\
+8000 & 0.03164 \\
+10000 & 0.03185 \\
+15000 & 0.0332 \\
+20000 & 0.03476 \\
+\end{longtable}
+\normalsize
+\clearpage
+\section{Embedded attenuation coefficients: air}
+These are original input rows, with photon energy converted from MeV to keV. Repeated nominal energies are the lower and upper sides of an absorption edge, in that order. Source: \url{https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/air.html}.
+\small
+\begin{longtable}{rr}
+\toprule
+$k$ (keV) & $\mu/\rho$ (cm$^2$/g) \\
+\midrule
+\endfirsthead
+\toprule
+$k$ (keV) & $\mu/\rho$ (cm$^2$/g) \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+1 & 3606 \\
+1.5 & 1191 \\
+2 & 527.9 \\
+3 & 162.5 \\
+3.2029 & 134 \\
+3.2029 & 148.5 \\
+4 & 77.88 \\
+5 & 40.27 \\
+6 & 23.41 \\
+8 & 9.921 \\
+10 & 5.12 \\
+15 & 1.614 \\
+20 & 0.7779 \\
+30 & 0.3538 \\
+40 & 0.2485 \\
+50 & 0.208 \\
+60 & 0.1875 \\
+80 & 0.1662 \\
+100 & 0.1541 \\
+150 & 0.1356 \\
+200 & 0.1233 \\
+300 & 0.1067 \\
+400 & 0.09549 \\
+500 & 0.08712 \\
+600 & 0.08055 \\
+800 & 0.07074 \\
+1000 & 0.06358 \\
+1250 & 0.05687 \\
+1500 & 0.05175 \\
+2000 & 0.04447 \\
+3000 & 0.03581 \\
+4000 & 0.03079 \\
+5000 & 0.02751 \\
+6000 & 0.02522 \\
+8000 & 0.02225 \\
+10000 & 0.02045 \\
+15000 & 0.0181 \\
+20000 & 0.01705 \\
+\end{longtable}
+\normalsize
+\clearpage
+\section{Additional elemental attenuation coefficients for BK7 and BaF$_2$}
+Exact embedded NIST $\mu/\rho$ inputs over the calculated 10--20,000 keV range. Sources are the NIST element pages for \href{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z05.html}{B}, \href{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z08.html}{O}, \href{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z09.html}{F}, \href{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z11.html}{Na}, \href{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z14.html}{Si}, and \href{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z19.html}{K}.
+\scriptsize
+\begin{longtable}{rrrrrrr}
+\toprule
+$k$ (keV)&B&O&F&Na&Si&K\\
+\midrule\endfirsthead
+\toprule $k$ (keV)&B&O&F&Na&Si&K\\\midrule\endhead
+\bottomrule\endfoot
+10&1.255&5.952&8.205&15.57&33.89&79.07\\
+15&0.4827&1.836&2.492&4.694&10.34&25.03\\
+20&0.3014&0.8651&1.133&2.057&4.464&10.93\\
+30&0.2063&0.3779&0.4487&0.7197&1.436&3.413\\
+40&0.1793&0.2585&0.2828&0.3969&0.7012&1.541\\
+50&0.1665&0.2132&0.2214&0.2804&0.4385&0.8679\\
+60&0.1583&0.1907&0.1920&0.2268&0.3207&0.5678\\
+80&0.1472&0.1678&0.1639&0.1796&0.2228&0.3251\\
+100&0.1391&0.1551&0.1496&0.1585&0.1835&0.2345\\
+150&0.1243&0.1361&0.1298&0.1335&0.1448&0.1582\\
+200&0.1136&0.1237&0.1176&0.1199&0.1275&0.1319\\
+300&0.09862&0.1070&0.1015&0.1029&0.1082&0.1080\\
+400&0.08834&0.09566&0.09073&0.09185&0.09614&0.09495\\
+500&0.08065&0.08729&0.08274&0.08372&0.08748&0.08600\\
+600&0.07460&0.08070&0.07649&0.07736&0.08077&0.07922\\
+800&0.06549&0.07087&0.06717&0.06788&0.07082&0.06929\\
+1000&0.05890&0.06372&0.06037&0.06100&0.06361&0.06216\\
+1250&0.05266&0.05697&0.05399&0.05454&0.05688&0.05556\\
+1500&0.04791&0.05185&0.04915&0.04968&0.05183&0.05068\\
+2000&0.04108&0.04459&0.04228&0.04282&0.04480&0.04399\\
+3000&0.03284&0.03597&0.03422&0.03487&0.03678&0.03666\\
+4000&0.02798&0.03100&0.02960&0.03037&0.03240&0.03282\\
+5000&0.02476&0.02777&0.02663&0.02753&0.02967&0.03054\\
+6000&0.02248&0.02552&0.02457&0.02559&0.02788&0.02915\\
+8000&0.01945&0.02263&0.02195&0.02319&0.02574&0.02766\\
+10000&0.01755&0.02089&0.02039&0.02181&0.02462&0.02704\\
+15000&0.01495&0.01866&0.01846&0.02023&0.02352&0.02687\\
+20000&0.01368&0.01770&0.01769&0.01970&0.02338&0.02737\\
+\end{longtable}
+\normalsize
+
+\small
+\begin{longtable}{rr@{\hspace{14mm}}rr}
+\toprule
+\multicolumn{2}{c}{As: $\mu/\rho$ (cm$^2$/g)}&\multicolumn{2}{c}{Ba: $\mu/\rho$ (cm$^2$/g)}\\
+$k$ (keV)&value&$k$ (keV)&value\\\midrule\endfirsthead
+\toprule $k$ (keV)&As&$k$ (keV)&Ba\\\midrule\endhead
+\bottomrule\endfoot
+10&41.15&10&186.0\\
+11.8667&25.77&15&63.47\\
+11.8667&179.2&20&29.38\\
+15&98.56&30&9.904\\
+20&45.64&37.4406&5.498\\
+30&15.06&37.4406&29.19\\
+40&6.760&40&24.57\\
+50&3.635&50&13.79\\
+60&2.203&60&8.511\\
+80&1.030&80&3.963\\
+100&0.5971&100&2.196\\
+150&0.2622&150&0.7828\\
+200&0.1719&200&0.4046\\
+300&0.1150&300&0.1891\\
+400&0.09414&400&0.1265\\
+500&0.08259&500&0.09923\\
+600&0.07483&600&0.08410\\
+800&0.06440&800&0.06744\\
+1000&0.05735&1000&0.05803\\
+1250&0.05106&1250&0.05058\\
+1500&0.04661&1500&0.04592\\
+2000&0.04093&2000&0.04078\\
+3000&0.03539&3000&0.03692\\
+4000&0.03296&4000&0.03598\\
+5000&0.03187&5000&0.03612\\
+6000&0.03141&6000&0.03669\\
+8000&0.03146&8000&0.03844\\
+10000&0.03207&10000&0.04042\\
+15000&0.03405&15000&0.04518\\
+20000&0.03603&20000&0.04902\\
+\end{longtable}
+\normalsize
+The As and Ba source pages are \url{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z33.html} and \url{https://physics.nist.gov/PhysRefData/XrayMassCoef/ElemTab/z56.html}. Repeated energies are the lower and upper sides of an absorption edge.
+
+\clearpage
+\section{Embedded photon dose-response coefficients}
+Original selected $H^*(10)/\Phi$ values from Ref.~\cite{ferrari}, converted to keV in the first column. These are not $H_{\rm MAX}/\Phi$ values.
+\small
+\begin{longtable}{rr}
+\toprule
+$k$ (keV) & $h(k)$ (pSv\,cm$^2$) \\
+\midrule
+\endfirsthead
+\toprule
+$k$ (keV) & $h(k)$ (pSv\,cm$^2$) \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+10 & 0.083 \\
+15 & 0.85 \\
+20 & 1.05 \\
+30 & 0.8 \\
+40 & 0.62 \\
+50 & 0.52 \\
+60 & 0.51 \\
+80 & 0.56 \\
+100 & 0.62 \\
+150 & 0.87 \\
+200 & 1.23 \\
+300 & 1.81 \\
+400 & 2.36 \\
+500 & 2.78 \\
+600 & 3.46 \\
+800 & 4.29 \\
+1000 & 5.18 \\
+1500 & 6.92 \\
+2000 & 8.25 \\
+3000 & 10.4 \\
+4000 & 10.7 \\
+5000 & 10.4 \\
+6000 & 9.58 \\
+8000 & 9.1 \\
+10000 & 8.76 \\
+20000 & 8.29 \\
+\end{longtable}
+\normalsize
+\end{document}
