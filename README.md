@@ -10,7 +10,7 @@ Configure the laser, target, observation angle, and material layers by editing `
 
 ## Documentation
 
-See [doc/laser_dose_calculator.pdf](laser_dose_calculator.pdf) for the physical model, equations, numerical methods, assumptions, and references.
+See [laser_dose_calculator.pdf](doc/laser_dose_calculator.pdf) for the physical model, equations, numerical methods, assumptions, and references.
 
 ## Limitations
 
